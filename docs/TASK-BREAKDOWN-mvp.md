@@ -11,10 +11,15 @@
   `VISION_BASE_URL`（默认智谱 coding paas v4）、`VISION_ROOT`（数据目录）
 - base_url+key 从环境读，不硬编码；写 `.env.example`
 
-**M1.2 调用层（provider 适配）**
-- 单文件 provider.py：chat_completions + image_url(base64 data URL)，超时/重试(有界)、
-  429/超时退避；**glm-5.3/4.7 会拒图（实测 code 1210），不写死模型名容错**
-- 记录 latency_ms + token usage
+**M1.2 调用层（多 provider 适配）**
+- provider.py：统一适配器接口，三家端点（base_url+key 全走 env，不硬编码）：
+  - MiniMax：`api.minimaxi.com/v1`，模型 `MiniMax-M3`（主力，2026-10-08 实测最快 2.3s）
+  - Kimi：`api.kimi.com/coding/v1`，模型 `kimi-for-coding`（备胎，13s 但输出最干净）
+  - GLM：智谱 coding paas v4，模型 `glm-5.3-flash`（三选，⚠️ glm-5.3/4.7 拒图 code 1210）
+- ⚠️ 实测坑：MiniMax-M3 把 `<think>...</think>` 泄漏进 content 字段——解析器必须先剥离
+  think 块再取 JSON；Kimi/GLM 输出干净（GLM 走 reasoning_content 分离）
+- 超时/重试有界、429 退避；记录 latency_ms + token usage
+- 模型选择：env 默认值 + 任务模板可覆盖（`preferred_model` 字段），P0 三方横评后定盘
 
 **M1.3 任务模板库**
 - templates/avatar_tag.py + templates/garment_attr.py：prompt + 输出 JSON Schema + 解析器

@@ -30,22 +30,24 @@
   ├─ 详情复核：大图 + 字段级结果，一键标记 对/错/存疑（自然沉淀金标集）
   └─ 统计看板：调用量、延迟分布、token 消耗、复核进度
   底层：
-  └─ 任务模板库（每任务 prompt+schema 一版本） ──▶ GLM vision API
+  └─ 任务模板库（每任务 prompt+schema 一版本） ──▶ MiniMax / Kimi / GLM vision API
 ```
 
-## 模型底座（2026-10-08 实测）
+## 模型底座（2026-10-08 实测，多 provider 可切换）
 
-| 项 | 值 | 依据 |
-|---|---|---|
-| Provider | zai（智谱开放平台 Coding Plan） | 已有订阅 |
-| base_url | `https://open.bigmodel.cn/api/coding/paas/v4` | hermes config |
-| **主力模型** | **`glm-5.3-flash`**（唯一实测吃图的） | 24×24 PNG 1.5s 答对颜色 |
-| glm-5.3 / glm-4.7 | ❌ 不支持 image_url（code 1210） | 实测 |
-| glm-5.3-flashx | ❌ 套餐未开放（429） | 实测 |
-| key | `Z_AI_API_KEY`（~/.hermes/.env；101 部署走 env 不进仓库） | 实测有效 |
+| Provider | 端点 | 模型 | 实测（19店白底图单图快测） |
+|---|---|---|---|
+| **MiniMax**（主力） | `api.minimaxi.com/v1` | `MiniMax-M3` | 2.3-6.7s 最快；⚠️ `<think>` 泄漏进 content 需剥离 |
+| **Kimi**（备胎） | `api.kimi.com/coding/v1` | `kimi-for-coding` | 13.1s；纯 JSON 直出最干净 |
+| GLM（三选） | 智谱 coding paas v4 | `glm-5.3-flash` | 4.3s；⚠️ glm-5.3/glm-4.7 拒图（code 1210），flashx 套餐无权限 |
 
-⚠️ 合规备注：Coding Plan 为个人编码订阅，MVP/内部用没问题；**对外收费卖之前**
-需评估切换到智谱按量付费商用 API（换 base_url+key 即可，代码不用动）。
+选型依据（周宇 2026-10-08）：MiniMax/Kimi 多模态更强，GLM/DeepSeek 推理更强——
+识别任务取多模态强项。单图快测三家识别结果都对，差距在速度/工程顺手度；
+**正式定盘等 P0 三方横评**（24 图 × 3 次 × 3 模型，字段级准确率+幻觉率）。
+key 全在 env（~/.hermes/.env 有 MiniMax/KIMI/Z_AI 三套），不进仓库。
+
+⚠️ 合规备注：三家均走 Coding Plan 类个人订阅，MVP/内部用没问题；**对外收费卖之前**
+需评估切换商用按量 API（换 base_url+key 即可，代码不用动）。
 
 ## 任务模板（种子，跑通前可调）
 
