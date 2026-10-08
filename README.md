@@ -111,3 +111,9 @@ deploy/      # systemd + nginx 片段（部署 101 时用）
 
 - 训练提案（蒸馏式：API 标注→小模型→自有推理）：docs/PROPOSAL-training.md
   触发条件：月推理量 >5 万张且 API 成本/SLA 扛不住时再评审
+
+## M1 本地开发
+
+`uv sync` → `uv run pytest -q` → `uv run uvicorn sirius_vision.main:app --host 127.0.0.1 --port 8902`。
+启动前按 `.env.example` 设置进程环境；管理后台使用 HTTPS。
+详见 [开发与运行说明](docs/DEVELOPMENT.md) 和 [API 接入契约](docs/API.md)。
