@@ -30,7 +30,7 @@ STATIC = Path(__file__).parent / 'static/admin'
 
 class Analyze(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    task: Literal['avatar_tag', 'garment_attr']
+    task: Literal['avatar_tag', 'garment_attr', 'avatar_origin']
     image_url: str | None = Field(default=None, max_length=4096)
     image_base64: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
@@ -54,7 +54,7 @@ class Review(BaseModel):
 
 
 class RecordQuery(BaseModel):
-    task: Literal['avatar_tag', 'garment_attr'] | None = None
+    task: Literal['avatar_tag', 'garment_attr', 'avatar_origin'] | None = None
     status: Literal['success', 'parse_error', 'provider_error'] | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
