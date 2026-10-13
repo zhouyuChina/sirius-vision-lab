@@ -12,7 +12,7 @@ All `/v1` requests require `X-API-Key`. Missing/invalid keys return 401; insuffi
 
 Supply exactly one of `image_url` or `image_base64`. Base64 may be plain or a `data:image/...;base64,...` URL. Image bytes must be at most 20 MiB and have a JPEG, PNG, WebP, GIF or BMP signature. Downloads allow public HTTP(S) on ports 80/443 only, reject redirects/private DNS results, pin the validated address and have a 20-second deadline. Signature validation does not decode or transcode images.
 
-Tasks are `avatar_tag`, `garment_attr` and `avatar_origin`. `options` is an optional JSON object (16 KiB maximum) passed as contextual data to the task prompt; it cannot select endpoints or credentials. Responses contain `id`, `task`, `model`, `template_version`, task fields at the top level, `usage` and `latency_ms`. Obtain exact required fields/enums from `GET /v1/tasks` (a JSON array of task/version/schema entries).
+Tasks are `avatar_tag`, `garment_attr`, `avatar_origin` and `avatar_classify`. `options` is an optional JSON object (16 KiB maximum) passed as contextual data to the task prompt; it cannot select endpoints or credentials. Responses contain `id`, `task`, `model`, `template_version`, task fields at the top level, `usage` and `latency_ms`. Obtain exact required fields/enums from `GET /v1/tasks` (a JSON array of task/version/schema entries).
 
 Accepted analyses persist the input image, options, raw final output, parsed fields, usage and success/failure. Input/authentication failures have no analysis record. A schema failure triggers one corrective attempt; if both fail, raw final output remains available to administrators. Usage totals include both completed attempts. Latency measures the complete analysis including fetch and retries.
 

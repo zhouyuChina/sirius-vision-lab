@@ -57,6 +57,10 @@ def test_templates():
     garment = dict(category='shirt', color=['blue'], fit='regular', sleeve_length='long',
                    neckline='round', pattern='solid', occasions=['casual'])
     assert TEMPLATES['garment_attr'].parse(json.dumps(garment)) == garment
+    classify = dict(category='landscape', signals=['mountain range', 'lake'], confidence=0.9)
+    assert TEMPLATES['avatar_classify'].parse(json.dumps(classify)) == classify
+    with pytest.raises(ValueError):
+        TEMPLATES['avatar_classify'].parse(json.dumps({**classify, 'category': 'scenery'}))
 
 
 def test_auth_chain_records_stats(setup):
