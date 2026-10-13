@@ -60,7 +60,7 @@ def test_templates():
     classify = dict(category='landscape', signals=['mountain range', 'lake'], confidence=0.9)
     assert TEMPLATES['avatar_classify'].parse(json.dumps(classify)) == classify
     with pytest.raises(ValueError):
-        TEMPLATES['avatar_classify'].parse(json.dumps({**classify, 'category': 'scenery'}))
+        TEMPLATES['avatar_classify'].parse(json.dumps({**classify, 'category': 'dog'}))
 
 
 def test_auth_chain_records_stats(setup):
