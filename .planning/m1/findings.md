@@ -1,0 +1,1 @@
+README and M1 breakdown are the design authority. Latest user request selects MiniMax primary; endpoints remain env-only. Admin API keys need an explicit admin role; add VISION_ADMIN_API_KEYS and persisted hashed keys. Secure cookies require HTTPS, including local tests. URL downloads must pin validated DNS addresses and disable redirects/proxies.

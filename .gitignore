@@ -1,0 +1,10 @@
+.venv/
+venv/
+data/
+__pycache__/
+*.py[cod]
+.env
+.pytest_cache/
+.superpowers/
+# avoid-list case images (892MB, kept local only)
+testdata/avoidlist-images/*.png
