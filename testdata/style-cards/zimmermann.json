@@ -1,0 +1,25 @@
+{
+  "brand": "ZIMMERMANN",
+  "watchlist_name": "ZIMMERMANNWEAR",
+  "risk_reason": "style copyright - corset dress line is the most copied silhouette in cross-border womenswear",
+  "category_scope": ["dress", "womenswear"],
+  "signature_elements": [
+    "Corset-style bodice with metal eyelets (grommets) and cross lacing",
+    "Tiered ruffle skirt (3+ layers)",
+    "High-low asymmetrical hem (longer back than front)",
+    "Sheer puff/lantern sleeves or sheer inserts",
+    "Romantic-gothic styling: black or floral, high neck or tie-front"
+  ],
+  "verdict_rules": {
+    "review": "match_count >= 4",
+    "block": "match_count >= 5 and style_confidence >= 0.9"
+  },
+  "golden": [
+    {
+      "file": "golden/zimmermann-style-01.png",
+      "expect": "block",
+      "confirmed_by": "zhouyu",
+      "date": "2026-10-17"
+    }
+  ]
+}

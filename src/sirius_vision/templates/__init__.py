@@ -43,5 +43,6 @@ def enum(*values: str) -> dict[str, Any]:
 from .avatar_tag import TEMPLATE as AVATAR  # noqa: E402
 from .garment_attr import TEMPLATE as GARMENT  # noqa: E402
 from .brand_risk import TEMPLATE as BRAND_RISK  # noqa: E402
+from .brand_risk_style import TEMPLATE as BRAND_RISK_STYLE  # noqa: E402
 
-TEMPLATES = {item.task: item for item in (AVATAR, GARMENT, BRAND_RISK)}
+TEMPLATES = {item.task: item for item in (AVATAR, GARMENT, BRAND_RISK, BRAND_RISK_STYLE)}
