@@ -313,3 +313,22 @@ async def test_edit_engine_fallbacks(seed_ok, qwen_ok, expected):
     assert fallback == (None if seed_ok else 'seedream' if qwen_ok else 'seedream->qwen30')
     if not seed_ok:
         assert any('aliyuncs' in host for host in calls)
+
+
+async def test_edit_render_uses_dedicated_timeout(monkeypatch):
+    from sirius_vision.renderer.edit_render import render_edit
+    monkeypatch.setenv('EDIT_TIMEOUT', '123')
+    settings = Settings(timeout=0.01, ark_api_key='ark')
+    observed = []
+    original_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        observed.append(kwargs['timeout'])
+        return original_client(**kwargs)
+
+    monkeypatch.setattr('sirius_vision.renderer.edit_render.httpx.AsyncClient', client_factory)
+    transport = httpx.MockTransport(lambda request: httpx.Response(503))
+    await render_edit(png(), [{**BAND, 'translated_text': 'SALE'}], settings, transport)
+    assert settings.edit_timeout == 123.0
+    assert observed == [123.0]
+    assert settings.timeout == 0.01

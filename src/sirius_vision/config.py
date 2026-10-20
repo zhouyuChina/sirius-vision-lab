@@ -22,6 +22,7 @@ class Settings:
     session_ttl: int = 28800
     provider: str = field(default_factory=lambda: os.getenv('VISION_PROVIDER', 'minimax'))
     timeout: float = 45.0
+    edit_timeout: float = field(default_factory=lambda: float(os.getenv('EDIT_TIMEOUT', '180')))
     translate_model: str = field(default_factory=lambda: os.getenv('TRANSLATE_MODEL', 'glm-5.3'))
     font_path_cyrillic: str = field(default_factory=lambda: os.getenv('FONT_PATH_CYRILLIC', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
     font_path_chinese: str = field(default_factory=lambda: os.getenv('FONT_PATH_CHINESE', '/System/Library/Fonts/STHeiti Light.ttc'))

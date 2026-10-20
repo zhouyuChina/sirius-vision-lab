@@ -51,7 +51,7 @@ async def render_edit(image: bytes, items: list[dict], settings: Settings,
         instruction = (instruction.replace('listed Chinese text', 'listed Russian text')
                        .replace('given Russian text', 'given Chinese text')
                        .replace('Russian verbatim', 'Chinese verbatim'))
-    async with httpx.AsyncClient(timeout=settings.timeout, transport=transport, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=settings.edit_timeout, transport=transport, trust_env=False) as client:
         if settings.ark_api_key:
             try:
                 response = await client.post('https://ark.cn-beijing.volces.com/api/v3/images/generations',
