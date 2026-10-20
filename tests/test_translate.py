@@ -291,7 +291,7 @@ def test_chinese_target_uses_chinese_font(service):
 
 
 @pytest.mark.parametrize('seed_ok,qwen_ok,expected', [(True, False, 'seedream'), (False, True, 'qwen30'), (False, False, None)])
-async def test_edit_engine_fallbacks(seed_ok, qwen_ok, expected):
+async def test_edit_engine_fallbacks(seed_ok, qwen_ok, expected, caplog):
     from sirius_vision.renderer.edit_render import render_edit
     calls = []
     def handler(request):
@@ -313,6 +313,26 @@ async def test_edit_engine_fallbacks(seed_ok, qwen_ok, expected):
     assert fallback == (None if seed_ok else 'seedream' if qwen_ok else 'seedream->qwen30')
     if not seed_ok:
         assert any('aliyuncs' in host for host in calls)
+        assert 'engine=seedream reason=HTTPStatusError: ' in caplog.text
+    if not qwen_ok and not seed_ok:
+        assert 'engine=qwen30 reason=HTTPStatusError: ' in caplog.text
+
+
+async def test_vendor_image_download_skips_input_url_fetcher_and_validates(monkeypatch):
+    from sirius_vision.renderer.edit_render import _download
+    from sirius_vision.images import ImageError
+
+    async def input_url_fetcher(_url):
+        raise AssertionError('Input URL fetcher must not handle vendor output')
+
+    monkeypatch.setattr('sirius_vision.images.fetch_image', input_url_fetcher)
+    monkeypatch.setattr('sirius_vision.renderer.edit_render.fetch_image', input_url_fetcher, raising=False)
+    responses = [png(), b'not an image']
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=responses.pop(0)))
+    async with httpx.AsyncClient(transport=transport, trust_env=False) as client:
+        assert await _download('https://image.invalid/out', client, None) == png()
+        with pytest.raises(ImageError):
+            await _download('https://image.invalid/out', client, None)
 
 
 async def test_edit_render_uses_dedicated_timeout(monkeypatch):

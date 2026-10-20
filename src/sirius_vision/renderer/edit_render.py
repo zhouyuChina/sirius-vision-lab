@@ -8,7 +8,7 @@ import httpx
 from PIL import Image
 
 from ..config import Settings
-from ..images import MAX_BYTES, fetch_image, image_type
+from ..images import MAX_BYTES, image_type
 
 logger = logging.getLogger(__name__)
 INSTRUCTION = ('Edit this e-commerce image: replace ONLY the listed Chinese text with the given Russian text. '
@@ -33,8 +33,6 @@ async def _download(url: str, client: httpx.AsyncClient, transport: httpx.AsyncB
     parts = urlsplit(url)
     if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.port not in (None, 443):
         raise ValueError('Invalid generated image URL')
-    if transport is None:
-        return await fetch_image(url)
     response = await client.get(url)
     response.raise_for_status()
     if len(response.content) > MAX_BYTES:
@@ -64,7 +62,7 @@ async def render_edit(image: bytes, items: list[dict], settings: Settings,
                 logger.info('edit_render_complete engine=seedream')
                 return result, 'seedream', None
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
-                logger.warning('edit_render_failed engine=seedream reason=%s', type(exc).__name__)
+                logger.warning('edit_render_failed engine=seedream reason=%s', f'{type(exc).__name__}: {str(exc)[:120]}')
         if settings.dashscope_api_key:
             try:
                 host = settings.dashscope_workspace_host
@@ -79,5 +77,5 @@ async def render_edit(image: bytes, items: list[dict], settings: Settings,
                 logger.info('edit_render_complete engine=qwen30')
                 return result, 'qwen30', 'seedream'
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, StopIteration) as exc:
-                logger.warning('edit_render_failed engine=qwen30 reason=%s', type(exc).__name__)
+                logger.warning('edit_render_failed engine=qwen30 reason=%s', f'{type(exc).__name__}: {str(exc)[:120]}')
     return None, None, 'seedream->qwen30'
