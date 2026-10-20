@@ -22,6 +22,14 @@ class Settings:
     session_ttl: int = 28800
     provider: str = field(default_factory=lambda: os.getenv('VISION_PROVIDER', 'minimax'))
     timeout: float = 45.0
+    translate_model: str = field(default_factory=lambda: os.getenv('TRANSLATE_MODEL', 'glm-5.3'))
+    font_path_cyrillic: str = field(default_factory=lambda: os.getenv('FONT_PATH_CYRILLIC', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+    font_path_chinese: str = field(default_factory=lambda: os.getenv('FONT_PATH_CHINESE', '/System/Library/Fonts/STHeiti Light.ttc'))
+    ark_api_key: str = field(default_factory=lambda: os.getenv('ARK_API_KEY', ''))
+    ark_seedream_model: str = field(default_factory=lambda: os.getenv('ARK_SEEDREAM_MODEL', 'doubao-seedream-5-0-pro-260628'))
+    dashscope_api_key: str = field(default_factory=lambda: os.getenv('DASHSCOPE_API_KEY', ''))
+    dashscope_workspace_host: str = field(default_factory=lambda: os.getenv('DASHSCOPE_WORKSPACE_HOST', 'llm-9ucxkul4g12vzutq.cn-beijing.maas.aliyuncs.com'))
+    dashscope_image_model: str = field(default_factory=lambda: os.getenv('DASHSCOPE_IMAGE_MODEL', 'qwen-image-3.0-pro'))
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

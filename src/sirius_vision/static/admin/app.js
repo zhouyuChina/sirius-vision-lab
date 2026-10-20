@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 // Relative paths preserve a reverse-proxy prefix such as /vision/.
 const adminBase = new URL(location.pathname.endsWith('/admin') ? `${location.pathname}/` : './', location.href);
 let csrf = '', cursor = null, selected = null, loading = false;
-const labels = {avatar_tag: '头像打标', garment_attr: '商品属性', success: '成功', parse_error: '解析失败', provider_error: '服务失败', correct: '对', wrong: '错', uncertain: '存疑'};
+const labels = {avatar_tag: '头像打标', garment_attr: '商品属性', brand_risk: '品牌元素', brand_risk_style: '设计风格', image_translate: '图片翻译', success: '成功', parse_error: '解析失败', provider_error: '服务失败', error: '处理失败', correct: '对', wrong: '错', uncertain: '存疑'};
 function message(text) { $('message').textContent = text; }
 function showLogin() {
   csrf = ''; $('detail').close(); $('workspace').hidden = true;
@@ -34,6 +34,10 @@ async function openDetail(id) {
     message('正在加载详情…');
     const record = await api(`records/${id}`); selected = record.id;
     $('detail-image').src = new URL(`records/${id}/image`, adminBase);
+    const hasOutput = Boolean(record.parsed_fields?.render?.output_image_id);
+    $('output-image-panel').hidden = !hasOutput;
+    if (hasOutput) $('detail-output-image').src = new URL(`records/${id}/output_image`, adminBase);
+    else $('detail-output-image').removeAttribute('src');
     $('input').textContent = JSON.stringify({task: record.task, template_version: record.template_version, options: record.input_options}, null, 2);
     $('fields').textContent = JSON.stringify(record.parsed_fields, null, 2);
     $('raw').textContent = record.raw_output || '无输出';

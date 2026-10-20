@@ -39,6 +39,11 @@ class Storage:
                     CHECK(role IN ('client','admin')), created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
                 );
             ''')
+            columns = {row['name'] for row in conn.execute('PRAGMA table_info(records)')}
+            if 'error_code' not in columns:
+                conn.execute('ALTER TABLE records ADD COLUMN error_code TEXT')
+            if 'output_image' not in columns:
+                conn.execute('ALTER TABLE records ADD COLUMN output_image TEXT')
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
