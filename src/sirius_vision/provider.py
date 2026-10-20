@@ -23,6 +23,7 @@ class Completion:
 
 class Adapter(Protocol):
     async def complete(self, prompt: str, image: str, preferred_model: str | None = None) -> Completion: ...
+    async def complete_text(self, prompt: str, preferred_model: str | None = None) -> Completion: ...
 
 
 class ProviderError(Exception):
@@ -40,7 +41,18 @@ class ChatAdapter:
             config = next((p for p in self.settings.providers.values() if p.model == preferred_model), config)
         if not config or not config.base_url or not config.api_key:
             raise ProviderError('Service unavailable')
-        model = preferred_model or config.model
+        return await self._request(config, preferred_model or config.model, [
+            {'type': 'text', 'text': prompt},
+            {'type': 'image_url', 'image_url': {'url': image}},
+        ])
+
+    async def complete_text(self, prompt: str, preferred_model: str | None = None) -> Completion:
+        config = self.settings.providers.get('glm')
+        if not config or not config.base_url or not config.api_key:
+            raise ProviderError('Service unavailable')
+        return await self._request(config, preferred_model or self.settings.translate_model, prompt)
+
+    async def _request(self, config, model: str, content: Any) -> Completion:
         started = time.monotonic()
         async with httpx.AsyncClient(timeout=self.settings.timeout, transport=self.transport, trust_env=False) as client:
             for attempt in range(2):
@@ -48,10 +60,7 @@ class ChatAdapter:
                     async with asyncio.timeout(self.settings.timeout):
                         response = await client.post(config.base_url.rstrip('/') + '/chat/completions',
                             headers={'Authorization': f'Bearer {config.api_key}'},
-                            json={'model': model, 'messages': [{'role': 'user', 'content': [
-                                {'type': 'text', 'text': prompt},
-                                {'type': 'image_url', 'image_url': {'url': image}},
-                            ]}]})
+                            json={'model': model, 'messages': [{'role': 'user', 'content': content}]})
                     if response.status_code == 429 and attempt == 0:
                         logger.warning('inference_retry reason=rate_limit attempt=1')
                         await asyncio.sleep(0.25)

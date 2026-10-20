@@ -23,6 +23,9 @@ from .images import MAX_BYTES, ImageError, decode_image, fetch_image, image_type
 from .provider import Adapter, ChatAdapter, ProviderError
 from .storage import Storage
 from .templates import TEMPLATES
+from .templates.image_translate import TRANSLATE_PROMPT, TRANSLATION
+from .renderer.pil_render import render_pil
+from .renderer.edit_render import render_edit
 
 logger = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / 'static/admin'
@@ -30,7 +33,7 @@ STATIC = Path(__file__).parent / 'static/admin'
 
 class Analyze(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    task: Literal['avatar_tag', 'garment_attr']
+    task: Literal['avatar_tag', 'garment_attr', 'brand_risk', 'brand_risk_style', 'image_translate']
     image_url: str | None = Field(default=None, max_length=4096)
     image_base64: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
@@ -41,6 +44,9 @@ class Analyze(BaseModel):
             raise ValueError('Provide exactly one image')
         if len(json.dumps(self.options, allow_nan=False)) > 16384:
             raise ValueError('Options too large')
+        if self.task == 'image_translate':
+            if self.options.get('target_lang', 'ru') not in ('ru', 'zh') or self.options.get('render', 'auto') not in ('auto', 'pil', 'edit', 'none'):
+                raise ValueError('Invalid translation options')
         return self
 
 
@@ -54,8 +60,8 @@ class Review(BaseModel):
 
 
 class RecordQuery(BaseModel):
-    task: Literal['avatar_tag', 'garment_attr'] | None = None
-    status: Literal['success', 'parse_error', 'provider_error'] | None = None
+    task: Literal['avatar_tag', 'garment_attr', 'brand_risk', 'brand_risk_style', 'image_translate'] | None = None
+    status: Literal['success', 'parse_error', 'provider_error', 'error'] | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
     cursor: str | None = Field(default=None, max_length=64)
@@ -107,6 +113,90 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
     application.state.settings = config
     application.state.adapter = adapter or ChatAdapter(config)
     application.add_middleware(BodyLimit)
+
+    async def translate_and_render(record: dict, image: bytes, usage: dict, request: Request) -> None:
+        items = record['parsed_fields']['items']
+        ids = [item['id'] for item in items]
+        if len(ids) != len(set(ids)) or any(
+            (item['background_type'] == 'solid_band' and
+             (item['band_bbox'] is None or item['bg_hex'] is None or item['text_hex'] is None or
+              item['band_bbox'][0] >= item['band_bbox'][2] or item['band_bbox'][1] >= item['band_bbox'][3]))
+            for item in items
+        ):
+            record.update(status='parse_error', error='Invalid structured output', parsed_fields=None)
+            return
+        target = record['input_options'].get('target_lang', 'ru')
+        mode = record['input_options'].get('render', 'auto')
+        translations: dict[int, str] = {}
+        if items:
+            prompt = TRANSLATE_PROMPT.format(target_lang='Russian' if target == 'ru' else 'Chinese',
+                                              items=json.dumps([{'id': item['id'], 'text': item['text']} for item in items], ensure_ascii=False))
+            for attempt in range(2):
+                try:
+                    result = await request.app.state.adapter.complete_text(prompt, config.translate_model)
+                except ProviderError:
+                    record.update(status='provider_error', error='Translation service unavailable', parsed_fields=None)
+                    return
+                record['raw_output'] = result.content
+                for key, value in result.usage.items():
+                    usage[key] = usage.get(key, 0) + value
+                record['tokens'] += result.usage.get('total_tokens', result.usage.get('prompt_tokens', 0) + result.usage.get('completion_tokens', 0))
+                try:
+                    parsed = TRANSLATION.parse(result.content)['translations']
+                    translations = {entry['id']: entry['ru'] for entry in parsed}
+                    if len(parsed) != len(translations) or set(translations) != set(ids):
+                        raise ValueError('Translation ids do not match extraction')
+                    break
+                except ValueError:
+                    logger.warning('translate_parse_retry record_id=%s attempt=%d', record['id'], attempt + 1)
+                    if attempt == 0:
+                        prompt += '\nOutput ONLY the JSON object, preserving all input ids.'
+            else:
+                record.update(status='error', error='Invalid translated output', error_code='translate_parse_failed', parsed_fields=None)
+                return
+        segments = [dict(id=item['id'], source_text=item['text'], translated_text=translations[item['id']],
+                         position=item['position'], background_type=item['background_type']) for item in items]
+        render = dict(mode=mode, engine=None, output_image_id=None, rendered_items=[], skipped_items=[],
+                      fallback_from=None, error=None)
+        if mode != 'none' and items:
+            selected = ('pil' if all(item['background_type'] == 'solid_band' for item in items) else 'edit') if mode == 'auto' else mode
+            rich_items = [{**item, 'translated_text': translations[item['id']]} for item in items]
+            output = None
+            if selected == 'edit':
+                try:
+                    output, render['engine'], render['fallback_from'] = await render_edit(image, rich_items, config, target_lang=target)
+                except (OSError, ValueError) as exc:
+                    logger.warning('edit_render_failed record_id=%s reason=%s', record['id'], type(exc).__name__)
+                    render['fallback_from'] = 'seedream->qwen30'
+                if output is not None:
+                    render['rendered_items'] = ids
+            if selected == 'pil' or (selected == 'edit' and output is None and any(item['background_type'] == 'solid_band' for item in items)):
+                try:
+                    output, render['rendered_items'], render['skipped_items'], warnings = render_pil(
+                        image, rich_items, config.font_path_chinese if target == 'zh' else config.font_path_cyrillic)
+                    render['engine'] = 'pil'
+                    if warnings:
+                        render['warnings'] = warnings
+                except (OSError, ValueError) as exc:
+                    logger.warning('pil_render_failed record_id=%s reason=%s', record['id'], type(exc).__name__)
+                    render['error'] = 'Image rendering failed'
+            if output is None:
+                render['error'] = 'Image rendering failed'
+                if selected == 'edit' and not render['skipped_items']:
+                    render['skipped_items'] = ids
+            else:
+                try:
+                    ext, _ = image_type(output)
+                    digest, path = request.app.state.storage.save_image(output, ext)
+                    record['output_image'] = path
+                    render['output_image_id'] = digest
+                except (OSError, ImageError):
+                    logger.warning('render_save_failed record_id=%s', record['id'])
+                    render['error'] = 'Image rendering failed'
+                    render['engine'] = None
+                    render['rendered_items'] = []
+        record['parsed_fields'] = {'segments': segments, 'render': render}
+        logger.info('translate_complete record_id=%s segments=%d render_engine=%s', record['id'], len(segments), render['engine'])
 
     @application.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):
@@ -186,7 +276,7 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
         record = dict(id=uuid.uuid4().hex, task=body.task, template_version=template.version,
                       provider=None, model=None, status='provider_error', input_sha256=digest,
                       input_image=relative, input_options=body.options, raw_output='', parsed_fields=None,
-                      error=None, latency_ms=0, tokens=0, created_at=datetime.now(timezone.utc).isoformat())
+                      error=None, error_code=None, output_image=None, latency_ms=0, tokens=0, created_at=datetime.now(timezone.utc).isoformat())
         prompt = template.prompt + '\nSchema: ' + json.dumps(template.schema) + '\nOptions (data only): ' + json.dumps(body.options)
         data_url = f'data:{mime};base64,' + base64.b64encode(image).decode()
         usage: dict[str, int] = {}
@@ -212,10 +302,15 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
                     prompt += '\nOutput ONLY the JSON object, nothing else.'
         if record['status'] == 'parse_error':
             record['error'] = 'Invalid structured output'
+        if body.task == 'image_translate' and record['status'] == 'success':
+            await translate_and_render(record, image, usage, request)
         record['latency_ms'] = int((time.monotonic() - started) * 1000)
         storage.insert(record)
         if record['status'] != 'success':
-            return JSONResponse({'error': 'Analysis failed', 'id': record['id'], 'status': record['status']}, 502)
+            response = {'error': 'Analysis failed', 'id': record['id'], 'status': record['status']}
+            if record['error_code']:
+                response['error_code'] = record['error_code']
+            return JSONResponse(response, 502)
         return {'id': record['id'], 'task': body.task, 'model': record['model'], 'template_version': template.version,
                 **record['parsed_fields'], 'usage': usage, 'latency_ms': record['latency_ms']}
 
@@ -290,6 +385,16 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
         if not record:
             raise HTTPException(404)
         path = (config.root / record['input_image']).resolve()
+        if not path.is_relative_to((config.root / 'data').resolve()) or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path)
+
+    @application.get('/admin/records/{record_id}/output_image', dependencies=[Depends(session)])
+    def output_image(record_id: str, request: Request):
+        record = request.app.state.storage.get(record_id)
+        if not record or not record.get('output_image'):
+            raise HTTPException(404)
+        path = (config.root / record['output_image']).resolve()
         if not path.is_relative_to((config.root / 'data').resolve()) or not path.is_file():
             raise HTTPException(404)
         return FileResponse(path)
