@@ -22,6 +22,7 @@
 调用方（B线/客户/义乌管线） ──HTTPS──▶ 识别服务（FastAPI）
   API 面：
   ├─ POST /v1/analyze            识别入口 {task, image, options}
+  ├─ GET  /v1/outputs/{sha256}   鉴权下载翻译成品图
   ├─ GET  /v1/tasks              任务模板列表 + schema
   ├─ GET  /v1/records            调用记录查询（管理 key）
   └─ GET  /v1/stats              用量/延迟/成本统计

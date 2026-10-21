@@ -2,6 +2,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,15 @@ class Settings:
     dashscope_workspace_host: str = field(default_factory=lambda: os.getenv('DASHSCOPE_WORKSPACE_HOST', 'llm-9ucxkul4g12vzutq.cn-beijing.maas.aliyuncs.com'))
     dashscope_image_model: str = field(default_factory=lambda: os.getenv('DASHSCOPE_IMAGE_MODEL', 'qwen-image-3.0-pro'))
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    public_base_url: str = field(default_factory=lambda: os.getenv(
+        'VISION_PUBLIC_BASE_URL', 'https://101.37.175.27/vision').rstrip('/'))
 
     def __post_init__(self) -> None:
+        self.public_base_url = self.public_base_url.rstrip('/')
+        public_url = urlsplit(self.public_base_url)
+        if (public_url.scheme != 'https' or not public_url.netloc or public_url.query
+                or public_url.fragment or public_url.username or public_url.password):
+            raise ValueError('VISION_PUBLIC_BASE_URL must be an absolute HTTPS URL')
         if not self.providers:
             for name, prefix, key, model in [
                 ('minimax', 'MINIMAX', 'MINIMAX_API_KEY', 'MiniMax-M3'),

@@ -9,6 +9,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,34 @@ class Storage:
         except FileExistsError:
             pass
         return digest, relative
+
+    def output_path(self, image_id: str) -> Path | None:
+        """Resolve an output-only object without exposing the shared data tree."""
+        expected_prefix = f'data/{image_id[:2]}/{image_id}.'
+        with self.connect() as conn:
+            rows = conn.execute(
+                'SELECT DISTINCT output_image FROM records '
+                'WHERE output_image GLOB ? AND output_image IS NOT NULL',
+                (expected_prefix + '*',),
+            ).fetchall()
+        data_root = (self.root / 'data').resolve()
+        expected_parent = data_root / image_id[:2]
+        for row in rows:
+            relative = row['output_image']
+            if not isinstance(relative, str):
+                continue
+            relative_path = PurePosixPath(relative)
+            if (len(relative_path.parts) != 3 or relative_path.parts[:2] != ('data', image_id[:2])
+                    or not relative_path.name.startswith(image_id + '.')):
+                continue
+            unresolved = self.root.joinpath(*relative_path.parts)
+            if unresolved.is_symlink():
+                continue
+            path = unresolved.resolve()
+            if path.parent != expected_parent or not path.is_file():
+                continue
+            return path
+        return None
 
     def insert(self, record: dict[str, Any]) -> None:
         values = {k: json.dumps(v, ensure_ascii=False) if k in JSON_FIELDS else v for k, v in record.items()}

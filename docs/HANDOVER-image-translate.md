@@ -60,6 +60,7 @@ curl -sk -X POST "https://101.37.175.27/vision/v1/analyze" \
   "render": {
     "mode": "auto", "engine": "pil",
     "output_image_id": "1dd76ea3092969a9...",
+    "output_url": "https://101.37.175.27/vision/v1/outputs/1dd76ea3092969a9...",
     "rendered_items": [1, 2, 3], "skipped_items": [],
     "fallback_from": null, "error": null
   },
@@ -75,6 +76,7 @@ curl -sk -X POST "https://101.37.175.27/vision/v1/analyze" \
 | `segments[]` | 逐条译文。`background_type`: `solid_band`（纯色底）/ `complex`（复杂背景） |
 | `render.engine` | 实际渲染引擎：`pil`（程序化重绘）/ 两个 AI 编辑引擎代号（主/备）/ `null`（没出图）——代号仅为日志标识，无需关心是哪家 |
 | `render.output_image_id` | 成品图的存储 ID，取图见 §4 |
+| `render.output_url` | 成品图的绝对 HTTPS 下载地址；下载时仍需带 `X-API-Key` |
 | `render.rendered_items` / `skipped_items` | 渲染了/跳过了哪些条目（`pil` 模式会跳过 complex 条目） |
 | `render.fallback_from` | 降级路径：`null`=一次成功；`主引擎名`=主挂了备顶上；`主->备`=双引擎全灭降级到了 `pil` |
 | `render.error` | 渲染层错误说明（`segments` 译文仍有效） |
@@ -88,6 +90,7 @@ curl -sk -X POST "https://101.37.175.27/vision/v1/analyze" \
 | 端点 | 说明 |
 |---|---|
 | `POST /v1/analyze` | 识别/翻译入口，`task` 可选 `image_translate`（本模块）及 `avatar_tag` / `garment_attr` / `brand_risk` / `brand_risk_style`（原有任务，见 API.md） |
+| `GET /v1/outputs/{output_image_id}` | 下载 JPEG/PNG/WebP 成品图（二进制响应，需 `X-API-Key`） |
 | `GET /v1/tasks` | 所有任务模板 + 输出 schema |
 | `GET /v1/records?task=image_translate` | 调用记录查询（管理 key） |
 | `GET /v1/stats` | 用量/延迟统计 |
@@ -103,7 +106,11 @@ curl -sk -X POST "https://101.37.175.27/vision/v1/analyze" \
 - 地址：`https://101.37.175.27/vision/admin`（登录口令找周宇）
 - 记录流：每次调用的输入图 + 参数 + 输出 JSON 全部落库，按任务/状态/日期筛选
 - 详情页：左边输入图、右边**成品输出图**，可一键标记 **对 / 错 / 存疑**（复核标记会沉淀为评测基准，翻译质量会越用越准）
-- 成品图直链（程序取图）：`GET /v1/records/{record_id}` 拿 `render.output_image_id` 后找周宇侧的同学取，或在后台详情页直接看/下载
+- 成品图直链（程序取图）：直接请求响应中的 `render.output_url`，并携带 `X-API-Key`。下载内容是图片二进制，不是 Base64；后台详情页仍可直接查看。
+
+```bash
+curl -sk "$OUTPUT_URL" -H "X-API-Key: $API_KEY" -o translated.jpg
+```
 
 ---
 
