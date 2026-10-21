@@ -46,9 +46,14 @@ class ChatAdapter:
         queued = time.monotonic()
         async with self._vision_slots:
             wait_ms = int((time.monotonic() - queued) * 1000)
-            logger.info(
-                'inference_slot_acquired provider=%s model=%s stage=vision wait_ms=%d limit=%d',
-                config.name, model, wait_ms, self.settings.max_vision_concurrency)
+            if wait_ms >= 100:
+                logger.warning(
+                    'inference_queue_wait provider=%s model=%s stage=vision wait_ms=%d limit=%d',
+                    config.name, model, wait_ms, self.settings.max_vision_concurrency)
+            else:
+                logger.info(
+                    'inference_slot_acquired provider=%s model=%s stage=vision wait_ms=%d limit=%d',
+                    config.name, model, wait_ms, self.settings.max_vision_concurrency)
             return await self._request(config, model, [
                 {'type': 'text', 'text': prompt},
                 {'type': 'image_url', 'image_url': {'url': image}},

@@ -50,7 +50,7 @@ async def test_provider_retry_bounds(failure, monkeypatch):
         assert sleeper.await_args.args == (1.25,)
 
 
-async def test_vision_provider_concurrency_is_bounded():
+async def test_vision_provider_concurrency_is_bounded(caplog):
     active = 0
     peak = 0
 
@@ -58,7 +58,7 @@ async def test_vision_provider_concurrency_is_bounded():
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.12)
         active -= 1
         return httpx.Response(200, json={
             'choices': [{'message': {'content': json.dumps(FIELDS)}}],
@@ -74,6 +74,7 @@ async def test_vision_provider_concurrency_is_bounded():
         for _ in range(5)
     ))
     assert peak == 2
+    assert any('inference_queue_wait' in record.message for record in caplog.records)
 
 
 def test_inference_limits_are_environment_configurable(monkeypatch):
