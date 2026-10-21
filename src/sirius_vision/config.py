@@ -22,7 +22,11 @@ class Settings:
     session_secret: str = field(default_factory=lambda: os.getenv('VISION_SESSION_SECRET', ''))
     session_ttl: int = 28800
     provider: str = field(default_factory=lambda: os.getenv('VISION_PROVIDER', 'minimax'))
-    timeout: float = 45.0
+    timeout: float = field(default_factory=lambda: float(os.getenv('VISION_TIMEOUT', '75')))
+    max_vision_concurrency: int = field(default_factory=lambda: int(
+        os.getenv('VISION_MAX_CONCURRENCY', '2')))
+    retry_backoff: float = field(default_factory=lambda: float(
+        os.getenv('VISION_RETRY_BACKOFF', '1')))
     edit_timeout: float = field(default_factory=lambda: float(os.getenv('EDIT_TIMEOUT', '180')))
     translate_model: str = field(default_factory=lambda: os.getenv('TRANSLATE_MODEL', 'glm-5.3'))
     font_path_cyrillic: str = field(default_factory=lambda: os.getenv('FONT_PATH_CYRILLIC', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
@@ -37,6 +41,12 @@ class Settings:
         'VISION_PUBLIC_BASE_URL', 'https://101.37.175.27/vision').rstrip('/'))
 
     def __post_init__(self) -> None:
+        if not 0 < self.timeout <= 300:
+            raise ValueError('VISION_TIMEOUT must be greater than 0 and at most 300 seconds')
+        if not 1 <= self.max_vision_concurrency <= 16:
+            raise ValueError('VISION_MAX_CONCURRENCY must be between 1 and 16')
+        if not 0 <= self.retry_backoff <= 30:
+            raise ValueError('VISION_RETRY_BACKOFF must be between 0 and 30 seconds')
         self.public_base_url = self.public_base_url.rstrip('/')
         public_url = urlsplit(self.public_base_url)
         if (public_url.scheme != 'https' or not public_url.netloc or public_url.query
