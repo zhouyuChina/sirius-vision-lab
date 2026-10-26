@@ -63,6 +63,7 @@ class Settings:
                 ('kimi', 'KIMI', 'KIMI_API_KEY', 'kimi-for-coding'),
                 ('glm', 'GLM', 'Z_AI_API_KEY', 'glm-5.3-flash'),
                 ('qwen', 'QWEN', 'QWEN_API_KEY', 'qwen3.8-flash'),
+                ('deepseek', 'DEEPSEEK', 'DEEPSEEK_API_KEY', 'deepseek-chat'),
             ]:
                 selected = name == self.provider
                 self.providers[name] = ProviderConfig(
