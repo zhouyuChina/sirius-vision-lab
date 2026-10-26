@@ -1,8 +1,11 @@
 """API and session-authenticated review console."""
 import base64
+import hashlib
 import hmac
+import io
 import json
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -12,9 +15,10 @@ from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from PIL import Image, UnidentifiedImageError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth import issue_session, read_session, verify_password
@@ -29,6 +33,9 @@ from .renderer.edit_render import render_edit
 
 logger = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / 'static/admin'
+OUTPUT_ID = re.compile(r'^[0-9a-fA-F]{64}$')
+OUTPUT_MIME = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
+OUTPUT_FORMAT = {'jpg': 'JPEG', 'jpeg': 'JPEG', 'png': 'PNG', 'webp': 'WEBP'}
 
 
 class Analyze(BaseModel):
@@ -156,7 +163,7 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
                 return
         segments = [dict(id=item['id'], source_text=item['text'], translated_text=translations[item['id']],
                          position=item['position'], background_type=item['background_type']) for item in items]
-        render = dict(mode=mode, engine=None, output_image_id=None, rendered_items=[], skipped_items=[],
+        render = dict(mode=mode, engine=None, output_image_id=None, output_url='', rendered_items=[], skipped_items=[],
                       fallback_from=None, error=None)
         if mode != 'none' and items:
             selected = ('pil' if all(item['background_type'] == 'solid_band' for item in items) else 'edit') if mode == 'auto' else mode
@@ -187,9 +194,12 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
             else:
                 try:
                     ext, _ = image_type(output)
+                    if ext not in OUTPUT_MIME:
+                        raise ImageError('Unsupported output image format')
                     digest, path = request.app.state.storage.save_image(output, ext)
                     record['output_image'] = path
                     render['output_image_id'] = digest
+                    render['output_url'] = f'{config.public_base_url}/v1/outputs/{digest}'
                 except (OSError, ImageError):
                     logger.warning('render_save_failed record_id=%s', record['id'])
                     render['error'] = 'Image rendering failed'
@@ -219,7 +229,8 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
         response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'same-origin'
-        response.headers['Cache-Control'] = 'no-store'
+        if 'Cache-Control' not in response.headers:
+            response.headers['Cache-Control'] = 'no-store'
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         return response
 
@@ -261,6 +272,45 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
     @application.get('/v1/tasks', dependencies=[Depends(key_role)])
     def tasks():
         return [{'task': t.task, 'template_version': t.version, 'schema': t.schema} for t in TEMPLATES.values()]
+
+    @application.get('/v1/outputs/{output_image_id}', dependencies=[Depends(key_role)], name='download_output')
+    def download_output(output_image_id: str, request: Request):
+        if not OUTPUT_ID.fullmatch(output_image_id):
+            raise HTTPException(400)
+        image_id = output_image_id.lower()
+        path = request.app.state.storage.output_path(image_id)
+        if path is None:
+            raise HTTPException(404)
+        extension = path.suffix.lower().lstrip('.')
+        if extension not in OUTPUT_MIME:
+            return JSONResponse({'error': 'Output image format is not supported'}, 415)
+        try:
+            data = path.read_bytes()
+        except OSError:
+            logger.warning('output_read_failed output_image_id=%s', image_id)
+            return JSONResponse({'error': 'Output image could not be read'}, 422)
+        if not data:
+            return JSONResponse({'error': 'Output image is empty'}, 422)
+        if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), image_id):
+            return JSONResponse({'error': 'Output image checksum is invalid'}, 422)
+        try:
+            detected_extension, _ = image_type(data)
+            with Image.open(io.BytesIO(data)) as image:
+                detected_format = image.format
+                image.verify()
+        except (ImageError, UnidentifiedImageError, Image.DecompressionBombError,
+                OSError, SyntaxError, ValueError):
+            return JSONResponse({'error': 'Output image is invalid'}, 422)
+        if detected_extension not in OUTPUT_MIME or detected_format != OUTPUT_FORMAT[extension]:
+            return JSONResponse({'error': 'Output image format is invalid'}, 422)
+        return Response(
+            content=data,
+            media_type=OUTPUT_MIME[extension],
+            headers={
+                'ETag': f'"{image_id}"',
+                'Cache-Control': 'private, max-age=86400',
+            },
+        )
 
     @application.post('/v1/analyze', dependencies=[Depends(key_role)])
     async def analyze(body: Analyze, request: Request):
