@@ -2,6 +2,12 @@
 
 All `/v1` requests require `X-API-Key`. Missing/invalid keys return 401; insufficient privileges return 403. Errors use `{"error":"..."}` with no upstream details. JSON validation errors return 422, invalid image input/downloads return 400, requests above the body limit return 413, and inference/structured-output failures return 502 with a record `id` and `status`. Unknown resources return 404.
 
+## Rendered output download
+
+`GET /v1/outputs/{output_image_id}` downloads a rendered JPEG, PNG, or WebP as binary image bytes. Supply the same `X-API-Key` authentication used by `/v1/analyze`. The ID is exactly 64 hexadecimal characters and is the SHA-256 of the response body. Input images and other files in the service data directory are never exposed by this route.
+
+Successful responses include the exact `Content-Type`, `Content-Length`, an `ETag` containing the lowercase SHA-256, and `Cache-Control: private, max-age=86400`. Missing output IDs return 404. Empty, corrupt, checksum-mismatched, or unsupported output objects return an explicit JSON error instead of image bytes.
+
 ## Analyze
 
 `POST /v1/analyze`
@@ -52,11 +58,11 @@ Use `image_translate` to extract text from a product image, translate it to Russ
   "id":"<record-id>", "task":"image_translate", "model":"<vision-model>",
   "template_version":"0.1.0",
   "segments":[{"id":1,"source_text":"促销","translated_text":"Скидка","position":"top label","background_type":"solid_band"}],
-  "render":{"mode":"auto","engine":"pil","output_image_id":"<image-id>","rendered_items":[1],"skipped_items":[],"fallback_from":null,"error":null},
+  "render":{"mode":"auto","engine":"pil","output_image_id":"<image-id>","output_url":"https://101.37.175.27/vision/v1/outputs/<image-id>","rendered_items":[1],"skipped_items":[],"fallback_from":null,"error":null},
   "usage":{"total_tokens":100}, "latency_ms":1200
 }
 ```
 
-`render.engine` identifies the rendering method (`pil`, a configured edit engine, or `null`). `output_image_id` is `null` when no output image exists. The translated image is available to authenticated console sessions at `GET /admin/records/{id}/output_image`. Image edit service credentials and endpoints are configured by the operator (for example `<your-image-edit-provider>`); clients never supply them in `options`.
+`render.engine` identifies the rendering method (`pil`, a configured edit engine, or `null`). `output_image_id` is `null` and `output_url` is empty when no output image exists. When present, `output_url` is an absolute HTTPS URL and still requires `X-API-Key`. The translated image also remains available to authenticated console sessions at `GET /admin/records/{id}/output_image`. Image edit service credentials and endpoints are configured by the operator (for example `<your-image-edit-provider>`); clients never supply them in `options`.
 
 Extraction or translation failures return 502 and persist a failed record. An unparseable translation after one retry uses `status: "error"` and `error_code: "translate_parse_failed"`. A rendering failure preserves the translated segments and a successful record. Latency includes all three stages and token usage includes completed extraction and translation calls.
