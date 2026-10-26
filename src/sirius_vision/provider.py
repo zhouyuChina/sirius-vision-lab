@@ -59,7 +59,7 @@ class ChatAdapter:
             ], stage='vision')
 
     async def complete_text(self, prompt: str, preferred_model: str | None = None) -> Completion:
-        config = self.settings.providers.get('glm')
+        config = self.settings.providers.get(self.settings.translate_provider)
         if not config or not config.base_url or not config.api_key:
             raise ProviderError('Service unavailable')
         return await self._request(

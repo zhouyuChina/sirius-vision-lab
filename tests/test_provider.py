@@ -3,13 +3,13 @@ import json
 import httpx
 import pytest
 
-from sirius_vision.config import Settings
-from sirius_vision.provider import ChatAdapter
+from sirius_vision.config import ProviderConfig, Settings
+from sirius_vision.provider import ChatAdapter, ProviderError
 
 
 @pytest.fixture
 def provider_env(monkeypatch):
-    for name in ('VISION_BASE_URL', 'VISION_MODEL', 'QWEN_MODEL', 'MINIMAX_MODEL'):
+    for name in ('VISION_BASE_URL', 'VISION_MODEL', 'QWEN_MODEL', 'MINIMAX_MODEL', 'TRANSLATE_PROVIDER'):
         monkeypatch.delenv(name, raising=False)
     for prefix, key in [('QWEN', 'QWEN_API_KEY'), ('MINIMAX', 'MINIMAX_API_KEY'),
                         ('GLM', 'Z_AI_API_KEY')]:
@@ -63,9 +63,11 @@ async def test_vision_preference_keeps_selected_channel(provider_env, provider, 
     assert result.model == expected_model
 
 
-@pytest.mark.parametrize('preferred_model', [None, 'glm-preferred'])
-async def test_text_keeps_glm_channel(provider_env, preferred_model):
-    provider_env.setenv('TRANSLATE_MODEL', 'glm-translate')
+@pytest.mark.parametrize('preferred_model', [None, 'qwen-preferred'])
+async def test_text_defaults_to_qwen_without_glm_credentials(provider_env, preferred_model):
+    provider_env.setenv('TRANSLATE_MODEL', 'qwen3.8-flash')
+    for name in ('GLM_BASE_URL', 'Z_AI_API_KEY', 'GLM_MODEL'):
+        provider_env.delenv(name, raising=False)
     seen = []
 
     def handler(request):
@@ -75,9 +77,43 @@ async def test_text_keeps_glm_channel(provider_env, preferred_model):
     result = await ChatAdapter(Settings(), httpx.MockTransport(handler)).complete_text(
         'translate', preferred_model=preferred_model)
     assert len(seen) == 1
-    assert str(seen[0].url) == 'https://glm.invalid/v1/chat/completions'
+    assert str(seen[0].url) == 'https://qwen.invalid/v1/chat/completions'
     body = json.loads(seen[0].content)
-    assert body['model'] == (preferred_model or 'glm-translate')
+    assert body['model'] == (preferred_model or 'qwen3.8-flash')
     assert body['messages'][0]['content'] == 'translate'
-    assert result.provider == 'glm'
+    assert result.provider == 'qwen'
     assert result.model == body['model']
+
+
+async def test_translate_provider_env_overrides_selection(provider_env):
+    provider_env.setenv('TRANSLATE_PROVIDER', 'minimax')
+    provider_env.setenv('TRANSLATE_MODEL', 'translation-model')
+
+    def handler(request):
+        assert str(request.url) == 'https://minimax.invalid/v1/chat/completions'
+        assert json.loads(request.content)['model'] == 'translation-model'
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{}'}}]})
+
+    settings = Settings()
+    assert settings.provider == 'qwen'
+    assert settings.translate_provider == 'minimax'
+    result = await ChatAdapter(settings, httpx.MockTransport(handler)).complete_text('translate')
+    assert result.provider == 'minimax'
+
+
+@pytest.mark.parametrize('config', [
+    None,
+    ProviderConfig('qwen', '', 'test-key', 'qwen3.8-flash'),
+    ProviderConfig('qwen', 'https://qwen.invalid/v1', '', 'qwen3.8-flash'),
+])
+async def test_text_missing_provider_configuration(config, provider_env):
+    providers = {'glm': ProviderConfig('glm', 'https://glm.invalid/v1', 'test-key', 'glm')}
+    if config is not None:
+        providers['qwen'] = config
+
+    def handler(request):
+        pytest.fail('Missing translation configuration must fail before requesting')
+
+    adapter = ChatAdapter(Settings(providers=providers), httpx.MockTransport(handler))
+    with pytest.raises(ProviderError, match='^Service unavailable$'):
+        await adapter.complete_text('translate')

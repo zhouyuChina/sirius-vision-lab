@@ -28,6 +28,7 @@ class Settings:
     retry_backoff: float = field(default_factory=lambda: float(
         os.getenv('VISION_RETRY_BACKOFF', '1')))
     edit_timeout: float = field(default_factory=lambda: float(os.getenv('EDIT_TIMEOUT', '180')))
+    translate_provider: str = field(default_factory=lambda: os.getenv('TRANSLATE_PROVIDER', 'qwen'))
     translate_model: str = field(default_factory=lambda: os.getenv('TRANSLATE_MODEL', 'glm-5.3'))
     font_path_cyrillic: str = field(default_factory=lambda: os.getenv('FONT_PATH_CYRILLIC', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
     font_path_chinese: str = field(default_factory=lambda: os.getenv('FONT_PATH_CHINESE', '/System/Library/Fonts/STHeiti Light.ttc'))

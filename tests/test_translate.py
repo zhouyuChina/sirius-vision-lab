@@ -43,13 +43,14 @@ class Fake:
     async def complete_text(self, prompt, preferred_model=None):
         self.text_calls.append((prompt, preferred_model))
         raw = self.translations[min(len(self.text_calls)-1, len(self.translations)-1)]
-        return Completion(raw, 'fake', 'glm-5.3', {'total_tokens': 4}, 1)
+        return Completion(raw, 'fake', 'qwen3.8-flash', {'total_tokens': 4}, 1)
 
 
 @pytest.fixture
 def service(tmp_path):
     settings = Settings(root=tmp_path, api_keys=('client',), admin_api_keys=('admin',),
-                        admin_password_hash=hash_password('passphrase'), session_secret='s'*40)
+                        admin_password_hash=hash_password('passphrase'), session_secret='s'*40,
+                        translate_model='qwen3.8-flash')
     fake = Fake()
     app = create_app(settings, fake)
     with TestClient(app, base_url='https://testserver') as client:
@@ -126,7 +127,7 @@ def test_none_pipeline_persists_and_admin_protects_output(service):
     assert body['render']['engine'] is None
     assert body['render']['output_image_id'] is None
     assert body['usage']['total_tokens'] == 7
-    assert fake.text_calls[0][1] == 'glm-5.3'
+    assert fake.text_calls[0][1] == 'qwen3.8-flash'
     record = app.state.storage.get(body['id'])
     assert record['parsed_fields']['segments'] == body['segments']
     assert record['status'] == 'success'
@@ -220,14 +221,14 @@ def test_invalid_options_rejected_before_provider(service):
     assert fake.vision_calls == []
 
 
-async def test_text_only_glm_payload():
+async def test_text_only_qwen_payload():
     seen = []
     def handler(request):
         seen.append(json.loads(request.content))
         return httpx.Response(200, json={'choices': [{'message': {'content': '{"translations":[]}'}}]})
-    settings = Settings(providers={'glm': ProviderConfig('glm', 'https://provider.invalid/v1', 'key', 'flash')})
-    result = await ChatAdapter(settings, httpx.MockTransport(handler)).complete_text('translate', 'glm-5.3')
-    assert result.model == 'glm-5.3'
+    settings = Settings(providers={'qwen': ProviderConfig('qwen', 'https://provider.invalid/v1', 'key', 'flash')})
+    result = await ChatAdapter(settings, httpx.MockTransport(handler)).complete_text('translate', 'qwen3.8-flash')
+    assert result.model == 'qwen3.8-flash'
     assert seen[0]['messages'][0]['content'] == 'translate'
     assert all('image_url' not in str(message) for message in seen[0]['messages'])
 
