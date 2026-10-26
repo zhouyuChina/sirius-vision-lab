@@ -1,3 +1,4 @@
+import asyncio
 import json
 import socket
 from unittest.mock import AsyncMock
@@ -32,16 +33,68 @@ async def test_provider_payload_and_usage(name):
 @pytest.mark.parametrize('failure', ['429', 'timeout', '500', 'malformed'])
 async def test_provider_retry_bounds(failure, monkeypatch):
     attempts = []
-    monkeypatch.setattr('sirius_vision.provider.asyncio.sleep', AsyncMock())
+    sleeper = AsyncMock()
+    monkeypatch.setattr('sirius_vision.provider.asyncio.sleep', sleeper)
     def handler(request):
         attempts.append(request)
         if failure == 'timeout':
             raise httpx.ReadTimeout('private provider details')
         return httpx.Response(int(failure) if failure.isdigit() else 200, json={'private':'bad'})
-    settings = Settings(providers={'minimax':ProviderConfig('minimax','https://provider.invalid','key','model')})
+    settings = Settings(retry_backoff=1.25,
+        providers={'minimax':ProviderConfig('minimax','https://provider.invalid','key','model')})
     with pytest.raises(ProviderError):
         await ChatAdapter(settings, httpx.MockTransport(handler)).complete('p', 'data:')
     assert len(attempts) == (2 if failure in ('429', 'timeout') else 1)
+    assert sleeper.await_count == (1 if failure in ('429', 'timeout') else 0)
+    if sleeper.await_count:
+        assert sleeper.await_args.args == (1.25,)
+
+
+async def test_vision_provider_concurrency_is_bounded(caplog):
+    active = 0
+    peak = 0
+
+    async def handler(request):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.12)
+        active -= 1
+        return httpx.Response(200, json={
+            'choices': [{'message': {'content': json.dumps(FIELDS)}}],
+            'usage': {'total_tokens': 1},
+        })
+
+    settings = Settings(max_vision_concurrency=2,
+        providers={'minimax': ProviderConfig(
+            'minimax', 'https://provider.invalid', 'key', 'model')})
+    adapter = ChatAdapter(settings, httpx.MockTransport(handler))
+    await asyncio.gather(*(
+        adapter.complete('prompt', 'data:image/png;base64,AA==')
+        for _ in range(5)
+    ))
+    assert peak == 2
+    assert any('inference_queue_wait' in record.message for record in caplog.records)
+
+
+def test_inference_limits_are_environment_configurable(monkeypatch):
+    monkeypatch.setenv('VISION_TIMEOUT', '75')
+    monkeypatch.setenv('VISION_MAX_CONCURRENCY', '2')
+    monkeypatch.setenv('VISION_RETRY_BACKOFF', '1.5')
+    settings = Settings()
+    assert settings.timeout == 75
+    assert settings.max_vision_concurrency == 2
+    assert settings.retry_backoff == 1.5
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('timeout', 0),
+    ('max_vision_concurrency', 0),
+    ('retry_backoff', -1),
+])
+def test_inference_limits_reject_invalid_values(field, value):
+    with pytest.raises(ValueError):
+        Settings(**{field: value})
 
 
 async def test_dns_mixed_private_rejected(monkeypatch):

@@ -22,6 +22,7 @@
 调用方（B线/客户/义乌管线） ──HTTPS──▶ 识别服务（FastAPI）
   API 面：
   ├─ POST /v1/analyze            识别入口 {task, image, options}
+  ├─ GET  /v1/outputs/{sha256}   鉴权下载翻译成品图
   ├─ GET  /v1/tasks              任务模板列表 + schema
   ├─ GET  /v1/records            调用记录查询（管理 key）
   └─ GET  /v1/stats              用量/延迟/成本统计
@@ -66,7 +67,32 @@ key 全在 env（~/.hermes/.env 有 MiniMax/KIMI/Z_AI 三套），不进仓库�
 
 类目/颜色/版型/袖长/领型/图案/适用场景。
 
+### brand_risk 品牌风险元素识别（第三个任务，v1.1.0）
+
+电商铺货防侵权：识别商品图中的品牌 logo / IP 形象 / 印花元素。
+**两段式**——VLM 只负责"认出"，判定权在规则引擎（避雷清单 + 别名表），
+输出 block / review / pass。配套评测框架与真实货盘回测。
+
+### brand_risk_style 款式特征核对（第四个任务，v1.0.0）
+
+款式级侵权检测：按品牌"款式特征卡"（5 项标志性构造特征）逐项核对，
+命中 ≥4 项 review、5 项全中且置信度 ≥0.9 block。卡库见 testdata/style-cards/。
+
 输出统一形状：`{task, model, template_version, fields…, usage, latency_ms}`。
+
+## 品牌风险筛选线（2026-10-17 v1 收口，已合 master）
+
+义乌客户实战需求的第一个完整落地场景，**接手文档：[docs/BRAND-RISK-HANDOVER.md](docs/BRAND-RISK-HANDOVER.md)（必读）**。
+
+| 项 | 状态 |
+|---|---|
+| 数据资产 | 避雷清单 377 品牌/397 记录（语雀，每周二更新）、877 张案例图、别名表 1284 条、167 张真实货盘负例、款式卡（ZIMMERMANN 首卡）、金标样本 |
+| 回测指标（run2） | 商标类拦截 58%、解析错误 0%、干净负例 100% 放行（零误报）、17 网在售图真实抓雷 13 个（浓度 7.8%） |
+| 评测资产 | `scripts/eval_brand_risk.py`（全量回测）、`scripts/gen_aliases.py`（别名生成） |
+| **金标门** | `scripts/check_golden.py` —— **改模板/规则/卡片后必跑，全绿才 commit** |
+
+架构与坑位详见接手文档第 2、6 节。著作权类（盗图）301 条正例已拆分至
+`testdata/provenance-positives.json`，留给未来的图片溯源模块。
 
 ## 落库模型（管理后台的数据基础）
 
@@ -85,10 +111,12 @@ latency_ms, tokens, created_at, review(对/错/存疑/null), review_note`。
 ## 目录约定
 
 ```
-testdata/    # 评测图（wxw/ 已有 24 张；avatars/ 占位）
+testdata/    # 评测数据（wxw/ 24张、avoidlist-images/ 案例图索引、negatives-17zwd/、
+             #   style-cards/ 款式卡、golden/ 金标、brand-aliases.json 等，见接手文档§3）
 src/         # 识别服务代码（FastAPI + 模板库 + 管理后台）
-bench/       # 评测脚本
-docs/        # 结论、接入规范
+scripts/     # 评测与工具（eval_brand_risk / gen_aliases / check_golden）
+bench/       # 评测脚本（P0 横评预留）
+docs/        # 结论、接入规范、接手文档
 results/     # 评测原始 JSON + 汇总
 deploy/      # systemd + nginx 片段（部署 101 时用）
 ```
@@ -117,3 +145,9 @@ deploy/      # systemd + nginx 片段（部署 101 时用）
 `uv sync` → `uv run pytest -q` → `uv run uvicorn sirius_vision.main:app --host 127.0.0.1 --port 8902`。
 启动前按 `.env.example` 设置进程环境；管理后台使用 HTTPS。
 详见 [开发与运行说明](docs/DEVELOPMENT.md) 和 [API 接入契约](docs/API.md)。
+
+## 纪律（接手者必读）
+
+1. 任何改动 → 单测 + 金标门（`scripts/check_golden.py`）全绿 → 才 commit
+2. master = 绝对正确可回滚版本；功能开发拉分支，验收后合并
+3. 金标样本只增不改；避雷清单每周二更新，抓取流程见 skill `yuque-lakesheet-scraping`
