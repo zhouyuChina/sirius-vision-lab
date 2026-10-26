@@ -59,6 +59,8 @@ async def test_vision_preference_keeps_selected_channel(provider_env, provider, 
     assert len(seen) == 1
     assert str(seen[0].url) == f'https://{provider}.invalid/v1/chat/completions'
     assert json.loads(seen[0].content)['model'] == expected_model
+    # The thinking toggle is translation-only; vision requests stay untouched.
+    assert 'enable_thinking' not in json.loads(seen[0].content)
     assert result.provider == provider
     assert result.model == expected_model
 
@@ -81,6 +83,8 @@ async def test_text_defaults_to_qwen_without_glm_credentials(provider_env, prefe
     body = json.loads(seen[0].content)
     assert body['model'] == (preferred_model or 'qwen3.8-flash')
     assert body['messages'][0]['content'] == 'translate'
+    # qwen translation requests must disable thinking (reasoning hangs past timeout otherwise).
+    assert body['enable_thinking'] is False
     assert result.provider == 'qwen'
     assert result.model == body['model']
 
@@ -91,7 +95,9 @@ async def test_translate_provider_env_overrides_selection(provider_env):
 
     def handler(request):
         assert str(request.url) == 'https://minimax.invalid/v1/chat/completions'
-        assert json.loads(request.content)['model'] == 'translation-model'
+        body = json.loads(request.content)
+        assert body['model'] == 'translation-model'
+        assert 'enable_thinking' not in body  # qwen-only toggle must not leak to other channels
         return httpx.Response(200, json={'choices': [{'message': {'content': '{}'}}]})
 
     settings = Settings()

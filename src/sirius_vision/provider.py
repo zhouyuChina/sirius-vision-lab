@@ -62,18 +62,24 @@ class ChatAdapter:
         config = self.settings.providers.get(self.settings.translate_provider)
         if not config or not config.base_url or not config.api_key:
             raise ProviderError('Service unavailable')
+        # qwen3.8-flash is a thinking model: on long structured prompts it reasons past the
+        # timeout (verified: 90s+ hang on the real translation prompt, 3.9s with the flag).
+        extra = {'enable_thinking': False} if config.name == 'qwen' else None
         return await self._request(
-            config, preferred_model or self.settings.translate_model, prompt, stage='translation')
+            config, preferred_model or self.settings.translate_model, prompt, stage='translation', extra=extra)
 
-    async def _request(self, config, model: str, content: Any, *, stage: str) -> Completion:
+    async def _request(self, config, model: str, content: Any, *, stage: str,
+                       extra: dict | None = None) -> Completion:
         started = time.monotonic()
         async with httpx.AsyncClient(timeout=self.settings.timeout, transport=self.transport, trust_env=False) as client:
+            payload = {'model': model, 'messages': [{'role': 'user', 'content': content}]}
+            if extra:
+                payload.update(extra)
             for attempt in range(2):
                 try:
                     async with asyncio.timeout(self.settings.timeout):
                         response = await client.post(config.base_url.rstrip('/') + '/chat/completions',
-                            headers={'Authorization': f'Bearer {config.api_key}'},
-                            json={'model': model, 'messages': [{'role': 'user', 'content': content}]})
+                            headers={'Authorization': f'Bearer {config.api_key}'}, json=payload)
                     if response.status_code == 429 and attempt == 0:
                         logger.warning(
                             'inference_retry provider=%s model=%s stage=%s reason=rate_limit '
