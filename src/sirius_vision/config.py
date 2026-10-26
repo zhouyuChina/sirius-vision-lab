@@ -28,6 +28,10 @@ class Settings:
     font_path_chinese: str = field(default_factory=lambda: os.getenv('FONT_PATH_CHINESE', '/System/Library/Fonts/STHeiti Light.ttc'))
     ark_api_key: str = field(default_factory=lambda: os.getenv('ARK_API_KEY', ''))
     ark_seedream_model: str = field(default_factory=lambda: os.getenv('ARK_SEEDREAM_MODEL', 'doubao-seedream-5-0-pro-260628'))
+    qwen_image_api_key: str = field(default_factory=lambda: os.getenv('QWEN_API_KEY', ''))
+    qwen_image_base_url: str = field(default_factory=lambda: os.getenv(
+        'QWEN_IMAGE_BASE_URL', os.getenv('QWEN_BASE_URL', '').rstrip('/').removesuffix('/compatible-mode/v1')))
+    qwen_image_model: str = field(default_factory=lambda: os.getenv('QWEN_IMAGE_MODEL', 'qwen-image-3.0-pro'))
     dashscope_api_key: str = field(default_factory=lambda: os.getenv('DASHSCOPE_API_KEY', ''))
     dashscope_workspace_host: str = field(default_factory=lambda: os.getenv('DASHSCOPE_WORKSPACE_HOST', 'llm-9ucxkul4g12vzutq.cn-beijing.maas.aliyuncs.com'))
     dashscope_image_model: str = field(default_factory=lambda: os.getenv('DASHSCOPE_IMAGE_MODEL', 'qwen-image-3.0-pro'))

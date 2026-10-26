@@ -184,12 +184,12 @@ def test_pil_skips_complex_and_auto_uses_edit(service, monkeypatch):
 def test_edit_total_failure_falls_back_to_pil_or_text(service, monkeypatch):
     client, app, fake = service
     async def unavailable(*args, **kwargs):
-        return None, None, 'seedream->qwen30'
+        return None, None, 'qwen-image->seedream'
     monkeypatch.setattr('sirius_vision.main.render_edit', unavailable)
     response = call(client, 'edit')
     assert response.status_code == 200
     assert response.json()['render']['engine'] == 'pil'
-    assert response.json()['render']['fallback_from'] == 'seedream->qwen30'
+    assert response.json()['render']['fallback_from'] == 'qwen-image->seedream'
     fake.items = [COMPLEX]
     fake.translations = ['{"translations":[{"id":2,"ru":"NEW"}]}']
     response = call(client, 'edit')
@@ -290,32 +290,65 @@ def test_chinese_target_uses_chinese_font(service):
         assert response.json()['render']['error']
 
 
-@pytest.mark.parametrize('seed_ok,qwen_ok,expected', [(True, False, 'seedream'), (False, True, 'qwen30'), (False, False, None)])
-async def test_edit_engine_fallbacks(seed_ok, qwen_ok, expected, caplog):
+@pytest.mark.parametrize('qwen_ok,seed_ok,expected', [(True, True, 'qwen-image'), (False, True, 'seedream'), (False, False, None)])
+async def test_edit_engine_fallbacks(qwen_ok, seed_ok, expected, caplog):
     from sirius_vision.renderer.edit_render import render_edit
+    caplog.set_level('INFO')
     calls = []
     def handler(request):
         calls.append(request.url.host)
         if request.url.host == 'image.invalid':
             return httpx.Response(200, content=png())
-        ok = seed_ok if 'volces' in request.url.host else qwen_ok
-        if not ok:
+        body = json.loads(request.content)
+        assert request.extensions['timeout']['read'] == 123
+        if request.url.host == 'token-plan.cn-beijing.maas.aliyuncs.com':
+            assert request.url.path == '/api/v1/services/aigc/multimodal-generation/generation'
+            assert request.headers['Authorization'] == 'Bearer token-plan-test'
+            assert body['model'] == 'qwen-image-3.0-pro'
+            message = body['input']['messages'][0]
+            assert message['role'] == 'user'
+            assert message['content'][0]['image'].startswith('data:image/jpeg;base64,')
+            assert 'SALE' in message['content'][1]['text']
+            if not qwen_ok:
+                return httpx.Response(503)
+            return httpx.Response(200, json={'output': {'choices': [{'message': {'content': [{'text': 'done'}, {'image': 'https://image.invalid/out'}]}}]}})
+        assert request.url.host == 'ark.cn-beijing.volces.com'
+        assert request.headers['Authorization'] == 'Bearer ark'
+        if not seed_ok:
             return httpx.Response(503)
-        if 'volces' in request.url.host:
-            return httpx.Response(200, json={'data': [{'url': 'https://image.invalid/out'}]})
-        if 'aliyuncs' in request.url.host:
-            return httpx.Response(200, json={'output': {'choices': [{'message': {'content': [{'image': 'https://image.invalid/out'}]}}]}})
-        return httpx.Response(200, content=png())
-    settings = Settings(ark_api_key='ark', dashscope_api_key='dash')
+        return httpx.Response(200, json={'data': [{'url': 'https://image.invalid/out'}]})
+    settings = Settings(ark_api_key='ark', qwen_image_api_key='token-plan-test',
+                        qwen_image_base_url='https://token-plan.cn-beijing.maas.aliyuncs.com', edit_timeout=123)
     result, engine, fallback = await render_edit(png(), [{**BAND, 'translated_text': 'SALE'}], settings, httpx.MockTransport(handler))
     assert engine == expected
-    assert (result is not None) == (expected is not None)
-    assert fallback == (None if seed_ok else 'seedream' if qwen_ok else 'seedream->qwen30')
-    if not seed_ok:
-        assert any('aliyuncs' in host for host in calls)
-        assert 'engine=seedream reason=HTTPStatusError: ' in caplog.text
+    assert result == (png() if expected else None)
+    assert fallback == (None if qwen_ok else 'qwen-image' if seed_ok else 'qwen-image->seedream')
+    assert calls == (['token-plan.cn-beijing.maas.aliyuncs.com', 'image.invalid'] if qwen_ok else
+                     ['token-plan.cn-beijing.maas.aliyuncs.com', 'ark.cn-beijing.volces.com'] +
+                     (['image.invalid'] if seed_ok else []))
+    if expected:
+        assert f'edit_render_complete engine={expected}' in caplog.text
+    if not qwen_ok:
+        assert 'engine=qwen-image reason=HTTPStatusError: ' in caplog.text
     if not qwen_ok and not seed_ok:
-        assert 'engine=qwen30 reason=HTTPStatusError: ' in caplog.text
+        assert 'engine=seedream reason=HTTPStatusError: ' in caplog.text
+
+
+@pytest.mark.parametrize('suffix', ['/compatible-mode/v1', '/compatible-mode/v1/'])
+def test_qwen_image_settings_from_env(monkeypatch, suffix):
+    monkeypatch.delenv('QWEN_IMAGE_BASE_URL', raising=False)
+    monkeypatch.delenv('QWEN_IMAGE_MODEL', raising=False)
+    monkeypatch.setenv('QWEN_API_KEY', 'token-plan-test')
+    monkeypatch.setenv('QWEN_BASE_URL', 'https://token-plan.cn-beijing.maas.aliyuncs.com' + suffix)
+    settings = Settings()
+    assert settings.qwen_image_api_key == 'token-plan-test'
+    assert settings.qwen_image_base_url == 'https://token-plan.cn-beijing.maas.aliyuncs.com'
+    assert settings.qwen_image_model == 'qwen-image-3.0-pro'
+    monkeypatch.setenv('QWEN_IMAGE_BASE_URL', 'https://custom.invalid')
+    monkeypatch.setenv('QWEN_IMAGE_MODEL', 'custom-model')
+    settings = Settings()
+    assert settings.qwen_image_base_url == 'https://custom.invalid'
+    assert settings.qwen_image_model == 'custom-model'
 
 
 async def test_vendor_image_download_skips_input_url_fetcher_and_validates(monkeypatch):
