@@ -37,11 +37,10 @@ class ChatAdapter:
 
     async def complete(self, prompt: str, image: str, preferred_model: str | None = None) -> Completion:
         config = self.settings.providers.get(self.settings.provider)
-        if preferred_model:
-            config = next((p for p in self.settings.providers.values() if p.model == preferred_model), config)
         if not config or not config.base_url or not config.api_key:
             raise ProviderError('Service unavailable')
-        return await self._request(config, preferred_model or config.model, [
+        # Template preferences must not hijack the deployment-level channel selection.
+        return await self._request(config, config.model, [
             {'type': 'text', 'text': prompt},
             {'type': 'image_url', 'image_url': {'url': image}},
         ])

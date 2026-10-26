@@ -50,6 +50,21 @@ async def render_edit(image: bytes, items: list[dict], settings: Settings,
                        .replace('given Russian text', 'given Chinese text')
                        .replace('Russian verbatim', 'Chinese verbatim'))
     async with httpx.AsyncClient(timeout=settings.edit_timeout, transport=transport, trust_env=False) as client:
+        if settings.qwen_image_api_key:
+            try:
+                host = settings.qwen_image_base_url.rstrip('/')
+                response = await client.post(f'{host}/api/v1/services/aigc/multimodal-generation/generation',
+                    headers={'Authorization': f'Bearer {settings.qwen_image_api_key}'},
+                    json={'model': settings.qwen_image_model, 'input': {'messages': [{'role': 'user',
+                          'content': [{'image': data_url}, {'text': instruction}]}]}})
+                response.raise_for_status()
+                content = response.json()['output']['choices'][0]['message']['content']
+                url = next(part['image'] for part in content if isinstance(part, dict) and part.get('image'))
+                result = await _download(url, client, transport)
+                logger.info('edit_render_complete engine=qwen-image')
+                return result, 'qwen-image', None
+            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, StopIteration) as exc:
+                logger.warning('edit_render_failed engine=qwen-image reason=%s', f'{type(exc).__name__}: {str(exc)[:120]}')
         if settings.ark_api_key:
             try:
                 response = await client.post('https://ark.cn-beijing.volces.com/api/v3/images/generations',
@@ -60,22 +75,7 @@ async def render_edit(image: bytes, items: list[dict], settings: Settings,
                 url = response.json()['data'][0]['url']
                 result = await _download(url, client, transport)
                 logger.info('edit_render_complete engine=seedream')
-                return result, 'seedream', None
+                return result, 'seedream', 'qwen-image'
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
                 logger.warning('edit_render_failed engine=seedream reason=%s', f'{type(exc).__name__}: {str(exc)[:120]}')
-        if settings.dashscope_api_key:
-            try:
-                host = settings.dashscope_workspace_host
-                response = await client.post(f'https://{host}/api/v1/services/aigc/multimodal-generation/generation',
-                    headers={'Authorization': f'Bearer {settings.dashscope_api_key}'},
-                    json={'model': settings.dashscope_image_model, 'input': {'messages': [{'role': 'user',
-                          'content': [{'image': data_url}, {'text': instruction}]}]}})
-                response.raise_for_status()
-                content = response.json()['output']['choices'][0]['message']['content']
-                url = next(part['image'] for part in content if isinstance(part, dict) and part.get('image'))
-                result = await _download(url, client, transport)
-                logger.info('edit_render_complete engine=qwen30')
-                return result, 'qwen30', 'seedream'
-            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, StopIteration) as exc:
-                logger.warning('edit_render_failed engine=qwen30 reason=%s', f'{type(exc).__name__}: {str(exc)[:120]}')
-    return None, None, 'seedream->qwen30'
+    return None, None, 'qwen-image->seedream'

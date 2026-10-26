@@ -28,6 +28,13 @@ class Settings:
     font_path_chinese: str = field(default_factory=lambda: os.getenv('FONT_PATH_CHINESE', '/System/Library/Fonts/STHeiti Light.ttc'))
     ark_api_key: str = field(default_factory=lambda: os.getenv('ARK_API_KEY', ''))
     ark_seedream_model: str = field(default_factory=lambda: os.getenv('ARK_SEEDREAM_MODEL', 'doubao-seedream-5-0-pro-260628'))
+    qwen_image_api_key: str = field(default_factory=lambda: os.getenv('QWEN_API_KEY', ''))
+    qwen_image_base_url: str = field(default_factory=lambda: os.getenv(
+        'QWEN_IMAGE_BASE_URL', os.getenv('QWEN_BASE_URL', '').rstrip('/').removesuffix('/compatible-mode/v1')))
+    qwen_image_model: str = field(default_factory=lambda: os.getenv('QWEN_IMAGE_MODEL', 'qwen-image-3.0-pro'))
+    # NOTE: the deployed main.py (direct-deploy build, ahead of master) builds
+    # output URLs from this; the old deployed config.py carried it, master did not.
+    public_base_url: str = field(default_factory=lambda: os.getenv('VISION_PUBLIC_BASE_URL', '').rstrip('/'))
     dashscope_api_key: str = field(default_factory=lambda: os.getenv('DASHSCOPE_API_KEY', ''))
     dashscope_workspace_host: str = field(default_factory=lambda: os.getenv('DASHSCOPE_WORKSPACE_HOST', 'llm-9ucxkul4g12vzutq.cn-beijing.maas.aliyuncs.com'))
     dashscope_image_model: str = field(default_factory=lambda: os.getenv('DASHSCOPE_IMAGE_MODEL', 'qwen-image-3.0-pro'))
@@ -39,6 +46,7 @@ class Settings:
                 ('minimax', 'MINIMAX', 'MINIMAX_API_KEY', 'MiniMax-M3'),
                 ('kimi', 'KIMI', 'KIMI_API_KEY', 'kimi-for-coding'),
                 ('glm', 'GLM', 'Z_AI_API_KEY', 'glm-5.3-flash'),
+                ('qwen', 'QWEN', 'QWEN_API_KEY', 'qwen3.8-flash'),
             ]:
                 selected = name == self.provider
                 self.providers[name] = ProviderConfig(
