@@ -56,7 +56,7 @@ class ChatAdapter:
             return await self._request(config, model, [
                 {'type': 'text', 'text': prompt},
                 {'type': 'image_url', 'image_url': {'url': image}},
-            ], stage='vision')
+            ], stage='vision', extra=({'thinking': {'type': 'disabled'}} if config.name == 'doubao' else None))
 
     async def complete_text(self, prompt: str, preferred_model: str | None = None) -> Completion:
         config = self.settings.providers.get(self.settings.translate_provider)

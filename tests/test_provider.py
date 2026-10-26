@@ -12,7 +12,8 @@ def provider_env(monkeypatch):
     for name in ('VISION_BASE_URL', 'VISION_MODEL', 'QWEN_MODEL', 'MINIMAX_MODEL', 'TRANSLATE_PROVIDER'):
         monkeypatch.delenv(name, raising=False)
     for prefix, key in [('QWEN', 'QWEN_API_KEY'), ('MINIMAX', 'MINIMAX_API_KEY'),
-                        ('GLM', 'Z_AI_API_KEY'), ('DEEPSEEK', 'DEEPSEEK_API_KEY')]:
+                        ('GLM', 'Z_AI_API_KEY'), ('DEEPSEEK', 'DEEPSEEK_API_KEY'),
+                        ('DOUBAO', 'DOUBAO_API_KEY')]:
         monkeypatch.setenv(key, 'test-key')
         monkeypatch.setenv(f'{prefix}_BASE_URL', f'https://{prefix.lower()}.invalid/v1')
     monkeypatch.setenv('VISION_PROVIDER', 'qwen')
@@ -63,6 +64,26 @@ async def test_vision_preference_keeps_selected_channel(provider_env, provider, 
     assert 'enable_thinking' not in json.loads(seen[0].content)
     assert result.provider == provider
     assert result.model == expected_model
+
+
+async def test_vision_doubao_backup_disables_thinking(provider_env):
+    provider_env.setenv('VISION_PROVIDER', 'doubao')
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{}'}}]})
+
+    result = await ChatAdapter(Settings(), httpx.MockTransport(handler)).complete(
+        'extract', 'data:image/png;base64,dGVzdA==')
+    assert len(seen) == 1
+    body = json.loads(seen[0].content)
+    assert str(seen[0].url) == 'https://doubao.invalid/v1/chat/completions'
+    assert body['model'] == 'doubao-seed-2-0-mini-260428'
+    # Ark thinking defaults ON (24s); disabled it runs 5.8s — must be injected on this channel only.
+    assert body['thinking'] == {'type': 'disabled'}
+    assert 'enable_thinking' not in body
+    assert result.provider == 'doubao'
 
 
 @pytest.mark.parametrize('preferred_model', [None, 'qwen-preferred'])
