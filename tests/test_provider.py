@@ -12,7 +12,8 @@ def provider_env(monkeypatch):
     for name in ('VISION_BASE_URL', 'VISION_MODEL', 'QWEN_MODEL', 'MINIMAX_MODEL', 'TRANSLATE_PROVIDER'):
         monkeypatch.delenv(name, raising=False)
     for prefix, key in [('QWEN', 'QWEN_API_KEY'), ('MINIMAX', 'MINIMAX_API_KEY'),
-                        ('GLM', 'Z_AI_API_KEY')]:
+                        ('GLM', 'Z_AI_API_KEY'), ('DEEPSEEK', 'DEEPSEEK_API_KEY'),
+                        ('DOUBAO', 'DOUBAO_API_KEY')]:
         monkeypatch.setenv(key, 'test-key')
         monkeypatch.setenv(f'{prefix}_BASE_URL', f'https://{prefix.lower()}.invalid/v1')
     monkeypatch.setenv('VISION_PROVIDER', 'qwen')
@@ -65,6 +66,26 @@ async def test_vision_preference_keeps_selected_channel(provider_env, provider, 
     assert result.model == expected_model
 
 
+async def test_vision_doubao_backup_disables_thinking(provider_env):
+    provider_env.setenv('VISION_PROVIDER', 'doubao')
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{}'}}]})
+
+    result = await ChatAdapter(Settings(), httpx.MockTransport(handler)).complete(
+        'extract', 'data:image/png;base64,dGVzdA==')
+    assert len(seen) == 1
+    body = json.loads(seen[0].content)
+    assert str(seen[0].url) == 'https://doubao.invalid/v1/chat/completions'
+    assert body['model'] == 'doubao-seed-2-0-mini-260428'
+    # Ark thinking defaults ON (24s); disabled it runs 5.8s — must be injected on this channel only.
+    assert body['thinking'] == {'type': 'disabled'}
+    assert 'enable_thinking' not in body
+    assert result.provider == 'doubao'
+
+
 @pytest.mark.parametrize('preferred_model', [None, 'qwen-preferred'])
 async def test_text_defaults_to_qwen_without_glm_credentials(provider_env, preferred_model):
     provider_env.setenv('TRANSLATE_MODEL', 'qwen3.8-flash')
@@ -105,6 +126,27 @@ async def test_translate_provider_env_overrides_selection(provider_env):
     assert settings.translate_provider == 'minimax'
     result = await ChatAdapter(settings, httpx.MockTransport(handler)).complete_text('translate')
     assert result.provider == 'minimax'
+
+
+async def test_translate_deepseek_backup_channel(provider_env):
+    # Switching to the backup channel must change BOTH provider and model, mirroring
+    # the documented VISION_PROVIDER/VISION_MODEL switching rule.
+    provider_env.setenv('TRANSLATE_PROVIDER', 'deepseek')
+    provider_env.setenv('TRANSLATE_MODEL', 'deepseek-chat')
+
+    def handler(request):
+        assert str(request.url) == 'https://deepseek.invalid/v1/chat/completions'
+        body = json.loads(request.content)
+        # Non-thinking backup model must be the default; no thinking toggle on this channel.
+        assert body['model'] == 'deepseek-chat'
+        assert 'enable_thinking' not in body
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{}'}}]})
+
+    settings = Settings()
+    assert settings.translate_provider == 'deepseek'
+    result = await ChatAdapter(settings, httpx.MockTransport(handler)).complete_text('translate')
+    assert result.provider == 'deepseek'
+    assert result.model == 'deepseek-chat'
 
 
 @pytest.mark.parametrize('config', [
